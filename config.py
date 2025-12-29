@@ -1,11 +1,11 @@
 # Токен от @BotFather
-TOKEN = "ТВОЙ_ТОКЕН_ТУТ"
+TOKEN = "8514425749:AAEhHWy1tJBFcycQtTDZerF3tX5E518CcGs"
 
 # Твой личный ID (цифрами)
-OWNER_ID = 123456789 
+OWNER_ID = 1871352653 
 
 # ID группы админов (с минусом, например -1001234567)
-ADMIN_CHAT_ID = -100123456789 
+ADMIN_CHAT_ID = -5222135043 
 
 # Система рангов (Клеймо)
 RANKS = {
