@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import psutil
-import time
+import traceback
 from datetime import datetime
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
@@ -12,107 +12,74 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 DATA_FILE = "data.json"
 
+# --- ФУНКЦИЯ ДЛЯ ОТПРАВКИ ОШИБОК В АДМИНКУ ---
+async def send_error(error_text):
+    try:
+        clean_error = traceback.format_exc()
+        text = f"❌ <b>КРИТИЧЕСКАЯ ОШИБКА</b>\n<code>---------------------------</code>\n{error_text}\n\n<b>Стек:</b>\n<code>{clean_error[-500:]}</code>"
+        await bot.send_message(ADMIN_CHAT_ID, text, parse_mode="HTML")
+    except:
+        print("Не удалось отправить ошибку в админку")
+
 # --- РАБОТА С ДАННЫМИ ---
 def load_data():
     if not os.path.exists(DATA_FILE):
-        return {"users": {}, "admins": {str(OWNER_ID): "Owner"}, "logs": []}
+        return {"users": {}, "admins": {str(OWNER_ID): "Owner"}}
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def save_data(db):
-    # Ограничение логов до 50 записей (чистка мусора)
-    if len(db["logs"]) > 50:
-        db["logs"] = db["logs"][-50:]
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=4)
 
 db = load_data()
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-def get_user_rank(uid):
-    user = db["users"].get(str(uid), {"rep": 2})
-    return RANKS.get(user["rep"], "😐 Прохожий")
+# --- ПРИВЕТСТВИЕ ПРИ ДОБАВЛЕНИИ ---
+@dp.message(F.new_chat_members)
+async def welcome_bot(message: types.Message):
+    for member in message.new_chat_members:
+        if member.id == (await bot.get_me()).id:
+            await message.answer("🦾 <b>Система Синдикат активирована.</b>\nЯ — админ-бот. Назначьте меня администратором, чтобы я мог управлять чатом.")
 
 # --- КОМАНДА ПРОФИЛЬ ---
 @dp.message(Command("profile"))
 async def cmd_profile(message: types.Message):
-    uid = str(message.from_user.id)
-    if uid not in db["users"]:
-        db["users"][uid] = {"rep": 2, "msgs": 0, "name": message.from_user.first_name}
-    
-    user = db["users"][uid]
-    user["msgs"] += 1
-    save_data(db)
-    
-    role = "Владелец" if int(uid) == OWNER_ID else db["admins"].get(uid, "Участник")
-    
-    text = (
-        f"👤 <b>ПРОФИЛЬ:</b> {message.from_user.first_name}\n"
-        f"<code>---------------------------</code>\n"
-        f"🆔 <b>ID:</b> <code>{uid}</code>\n"
-        f"🏷 <b>КЛЕЙМО:</b> {RANKS[user['rep']]}\n"
-        f"💬 <b>СООБЩЕНИЙ:</b> {user['msgs']}\n"
-        f"🛡 <b>РОЛЬ:</b> {role}"
-    )
-    await message.answer(text, parse_mode="HTML")
-
-# --- МОНИТОРИНГ (ДЛЯ АДМИН-ЧАТА) ---
-@dp.message(Command("status"), F.chat.id == ADMIN_CHAT_ID)
-async def sys_status(message: types.Message):
-    start_time = time.time()
-    msg = await message.answer("📡 Замеряю отклик...")
-    ping = round((time.time() - start_time) * 1000)
-    
-    ram = psutil.virtual_memory()
-    storage = os.path.getsize(DATA_FILE) / 1024
-    
-    text = (
-        f"📟 <b>CORE MONITORING</b>\n"
-        f"<code>---------------------------</code>\n"
-        f"📡 <b>PING:</b> <code>{ping}ms</code>\n"
-        f"💾 <b>RAM:</b> <code>{ram.used // 1024 // 1024}MB / 256MB</code>\n"
-        f"📂 <b>DATA:</b> <code>{storage:.2f}KB</code>\n"
-        f"<code>---------------------------</code>"
-    )
-    await msg.edit_text(text, parse_mode="HTML")
-
-# --- АДМИН-КОМАНДЫ СЛОВАМИ (REPLY) ---
-@dp.message(F.reply_to_message, F.chat.id != ADMIN_CHAT_ID)
-async def admin_words(message: types.Message):
-    # Проверка, админ ли написавший
-    if str(message.from_user.id) not in db["admins"] and message.from_user.id != OWNER_ID:
-        return
-
-    cmd = message.text.lower()
-    target = message.reply_to_message.from_user
-    t_id = str(target.id)
-
-    if cmd == "мут":
-        await bot.restrict_chat_member(message.chat.id, target.id, permissions=types.ChatPermissions(can_send_messages=False))
-        await message.answer(f"🤐 {target.first_name} отправлен в мут.")
+    try:
+        uid = str(message.from_user.id)
+        if uid not in db["users"]:
+            db["users"][uid] = {"rep": 2, "msgs": 0}
         
-    elif cmd == "размут":
-        await bot.restrict_chat_member(message.chat.id, target.id, permissions=types.ChatPermissions(can_send_messages=True))
-        await message.answer(f"🔊 {target.first_name} снова может говорить.")
+        db["users"][uid]["msgs"] += 1
+        save_data(db)
+        
+        user = db["users"][uid]
+        rank = RANKS.get(user["rep"], "😐 Прохожий")
+        
+        await message.reply(f"👤 <b>ПРОФИЛЬ:</b> {message.from_user.first_name}\n🏷 <b>КЛЕЙМО:</b> {rank}\n💬 <b>МЕССАДЖИ:</b> {user['msgs']}", parse_mode="HTML")
+    except Exception as e:
+        await send_error(f"Ошибка в /profile: {e}")
 
-    elif cmd == "клеймо -":
-        if t_id in db["users"]:
-            db["users"][t_id]["rep"] = max(db["users"][t_id]["rep"] - 1, -1)
-            save_data(db)
-            await message.answer(f"📉 Клеймо {target.first_name} понижено до: {get_user_rank(t_id)}")
+# --- МОНИТОРИНГ ---
+@dp.message(Command("status"))
+async def sys_status(message: types.Message):
+    if message.from_user.id != OWNER_ID: return
+    try:
+        ram = psutil.virtual_memory()
+        text = f"📟 <b>STATUS</b>\n<code>---------------------------</code>\n💾 RAM: {ram.percent}%\n📂 Disk: {os.path.getsize(DATA_FILE)} bytes"
+        await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        await send_error(f"Ошибка в /status: {e}")
 
-    # Лог в админ-чат
-    log_text = (
-        f"🛡 <b>ACTION LOG</b>\n"
-        f"👤 Мод: {message.from_user.first_name}\n"
-        f"🎯 Цель: {target.first_name}\n"
-        f"⚡️ Действие: {cmd.upper()}"
-    )
-    await bot.send_message(ADMIN_CHAT_ID, log_text, parse_mode="HTML")
-
+# --- ГЛАВНЫЙ ЗАПУСК ---
 async def main():
-    await dp.start_polling(bot)
+    try:
+        print("Бот стартует...")
+        # Уведомление в админку о запуске
+        await bot.send_message(ADMIN_CHAT_ID, "✅ <b>Бот успешно запущен на хостинге!</b>", parse_mode="HTML")
+        await dp.start_polling(bot)
+    except Exception as e:
+        print(f"Ошибка при запуске: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
-  
+    
