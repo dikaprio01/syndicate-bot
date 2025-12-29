@@ -5,7 +5,7 @@ TOKEN = "8514425749:AAEhHWy1tJBFcycQtTDZerF3tX5E518CcGs"
 OWNER_ID = 1871352653 
 
 # ID группы админов (с минусом, например -1001234567)
-ADMIN_CHAT_ID = -5222135043 
+ADMIN_CHAT_ID = -1005222135043 
 
 # Система рангов (Клеймо)
 RANKS = {
